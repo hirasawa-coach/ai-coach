@@ -3,6 +3,7 @@ const express = require("express");
 const multer = require("multer");
 const db = require("./db");
 const OpenAI = require("openai");
+const cors = require("cors");
 
 const app = express();
 const upload = multer({ dest: "uploads/" });
