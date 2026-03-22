@@ -63,5 +63,13 @@ app.get("/chats", (req, res) => {
   });
 });
 
+app.get("/", (req, res) => {
+    res.send("AI Coach API is running");
+  });
+  
+  app.get("/health", (req, res) => {
+    res.json({ ok: true });
+  });
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("Server running"));
