@@ -14,6 +14,8 @@ const client = new OpenAI({
 
 app.use(express.json());
 
+app.use(cors());
+
 /**
  * 生徒からの質問受付
  */
