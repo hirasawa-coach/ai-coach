@@ -14,7 +14,22 @@ const client = new OpenAI({
 
 app.use(express.json());
 
-app.use(cors());
+const allowedOrigins = [
+  "https://hira-ai-coach.com",
+  "https://www.hira-ai-coach.com"
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error("CORS not allowed: " + origin));
+  }
+}));
 
 /**
  * 生徒からの質問受付
