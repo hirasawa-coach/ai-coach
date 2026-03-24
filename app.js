@@ -80,24 +80,23 @@ app.post("/chat", upload.single("image"), async (req, res) => {
     }
 
     if (prompt.length > MAX_PROMPT_LENGTH) {
-// 2秒クールダウンチェック
-const now = Date.now();
-const lastTime = lastRequestMap.get(user_name) || 0;
-
-if (now - lastTime < COOLDOWN_MS) {
-  return res.status(429).json({
-    error: "送信間隔が短すぎます。2秒待ってから再度送信してください。"
-  });
-}
-
-// 記録
-lastRequestMap.set(user_name, now);
-
-
       return res.status(400).json({
         error: `入力は${MAX_PROMPT_LENGTH}文字以内にしてください`
       });
     }
+
+    // 2秒クールダウンチェック
+    const now = Date.now();
+    const lastTime = lastRequestMap.get(user_name) || 0;
+
+    if (now - lastTime < COOLDOWN_MS) {
+      return res.status(429).json({
+        error: "送信間隔が短すぎます。2秒待ってから再度送信してください。"
+      });
+    }
+
+    // 記録
+    lastRequestMap.set(user_name, now);
 
     const todayCount = await countTodayRequests(user_name);
 
