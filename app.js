@@ -6,7 +6,6 @@ const OpenAI = require("openai");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
-const sharp = require("sharp");
 
 const app = express();
 
@@ -128,42 +127,25 @@ app.post("/chat", upload.single("image"), async (req, res) => {
     if (image) {
       const mimeType = image.mimetype;
 
-      const normalMimeTypes = [
+      const allowedMimeTypes = [
         "image/jpeg",
         "image/png",
         "image/webp",
         "image/gif"
       ];
 
-      const heicMimeTypes = [
-        "image/heic",
-        "image/heif"
-      ];
-
-      if (!normalMimeTypes.includes(mimeType) && !heicMimeTypes.includes(mimeType)) {
+      if (!allowedMimeTypes.includes(mimeType)) {
         return res.status(400).json({
-          error: "画像は JPG / PNG / WEBP / GIF / HEIC のみ対応しています。"
+          error: "画像は JPG / PNG / WEBP / GIF のみ対応しています。iPhoneの場合はスクリーンショットで送信してください。"
         });
       }
 
-      let base64Image;
-      let finalMimeType = mimeType;
-
-      if (heicMimeTypes.includes(mimeType)) {
-        const convertedBuffer = await sharp(image.path)
-          .jpeg()
-          .toBuffer();
-
-        base64Image = convertedBuffer.toString("base64");
-        finalMimeType = "image/jpeg";
-      } else {
-        const imageBuffer = fs.readFileSync(image.path);
-        base64Image = imageBuffer.toString("base64");
-      }
+      const imageBuffer = fs.readFileSync(image.path);
+      const base64Image = imageBuffer.toString("base64");
 
       userContent.push({
         type: "input_image",
-        image_url: `data:${finalMimeType};base64,${base64Image}`
+        image_url: `data:${mimeType};base64,${base64Image}`
       });
     }
 
