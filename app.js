@@ -6,6 +6,39 @@ const OpenAI = require("openai");
 const cors = require("cors");
 
 const app = express();
+
+const DAILY_LIMIT = 10;
+const MAX_PROMPT_LENGTH = 500;
+
+function getJSTDateString() {
+  const now = new Date();
+  const jst = new Date(
+    now.toLocaleString("en-US", { timeZone: "Asia/Tokyo" })
+  );
+  const yyyy = jst.getFullYear();
+  const mm = String(jst.getMonth() + 1).padStart(2, "0");
+  const dd = String(jst.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function countTodayRequests(userName) {
+  return new Promise((resolve, reject) => {
+    const today = getJSTDateString();
+
+    const sql = `
+      SELECT COUNT(*) as count
+      FROM chats
+      WHERE user_name = ?
+      AND date(created_at, '+9 hours') = ?
+    `;
+
+    db.get(sql, [userName, today], (err, row) => {
+      if (err) return reject(err);
+      resolve(row.count);
+    });
+  });
+}
+
 const upload = multer({ dest: "uploads/" });
 
 const client = new OpenAI({
@@ -39,6 +72,24 @@ app.post("/chat", upload.single("image"), async (req, res) => {
     const { user_name, prompt } = req.body;
     const image = req.file;
 
+    if (!user_name || !prompt) {
+      return res.status(400).json({ error: "user_name と prompt は必須です" });
+    }
+
+    if (prompt.length > MAX_PROMPT_LENGTH) {
+      return res.status(400).json({
+        error: `入力は${MAX_PROMPT_LENGTH}文字以内にしてください`
+      });
+    }
+
+    const todayCount = await countTodayRequests(user_name);
+
+    if (todayCount >= DAILY_LIMIT) {
+      return res.status(429).json({
+        error: `1日の利用回数は${DAILY_LIMIT}回までです`
+      });
+    }
+
     // OpenAIへ送信（FTモデル）
     const response = await client.responses.create({
         model: "gpt-5.4-mini",
@@ -64,7 +115,10 @@ app.post("/chat", upload.single("image"), async (req, res) => {
       [user_name, prompt, image?.path || null, answer]
     );
 
-    res.json({ answer });
+    res.json({
+      answer,
+      remaining: DAILY_LIMIT - (todayCount + 1)
+    });
 
   } catch (err) {
     console.error(err);
