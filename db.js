@@ -13,6 +13,10 @@ db.serialize(() => {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+    db.run(`
+    CREATE INDEX IF NOT EXISTS idx_chats_user_created_at
+    ON chats (user_name, created_at)
+  `);
 });
 
 module.exports = db;
