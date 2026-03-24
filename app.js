@@ -4,6 +4,8 @@ const multer = require("multer");
 const db = require("./db");
 const OpenAI = require("openai");
 const cors = require("cors");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 
@@ -42,7 +44,19 @@ function countTodayRequests(userName) {
   });
 }
 
-const upload = multer({ dest: "uploads/" });
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+const upload = multer({
+  dest: "uploads/",
+  limits: { fileSize: 5 * 1024 * 1024 }
+});
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -106,23 +120,46 @@ app.post("/chat", upload.single("image"), async (req, res) => {
       });
     }
 
-    // OpenAIへ送信（FTモデル）
+    let userContent = [
+      { type: "input_text", text: prompt }
+    ];
+
+    if (image) {
+      const mimeType = image.mimetype;
+
+      const allowedMimeTypes = [
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/gif"
+      ];
+
+      if (!allowedMimeTypes.includes(mimeType)) {
+        return res.status(400).json({
+          error: "画像は JPG / PNG / WEBP / GIF のみ対応しています。"
+        });
+      }
+
+      const imageBuffer = fs.readFileSync(image.path);
+      const base64Image = imageBuffer.toString("base64");
+
+      userContent.push({
+        type: "input_image",
+        image_url: `data:${mimeType};base64,${base64Image}`
+      });
+    }
+
     const response = await client.responses.create({
-        model: "gpt-5.4-mini",
+      model: "gpt-5.4-mini",
       input: [
         {
           role: "user",
-          content: [
-            { type: "input_text", text: prompt },
-            ...(image
-              ? [{ type: "input_image", image_url: `file://${image.path}` }]
-              : [])
-          ]
+          content: userContent
         }
       ]
     });
 
-    const answer = response.output_text;
+    const answer = response.output_text || "回答を取得できませんでした。";
 
     // DB保存
     db.run(
@@ -131,6 +168,14 @@ app.post("/chat", upload.single("image"), async (req, res) => {
       [user_name, prompt, image?.path || null, answer]
     );
 
+    if (image?.path) {
+      fs.unlink(image.path, (unlinkErr) => {
+        if (unlinkErr) {
+          console.error("画像ファイル削除エラー:", unlinkErr);
+        }
+      });
+    }
+
     res.json({
       answer,
       remaining: DAILY_LIMIT - (todayCount + 1)
@@ -138,7 +183,20 @@ app.post("/chat", upload.single("image"), async (req, res) => {
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "エラー発生" });
+
+    if (req.file?.path) {
+      fs.unlink(req.file.path, () => {});
+    }
+
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res.status(400).json({
+        error: "画像サイズは5MB以下にしてください。"
+      });
+    }
+
+    return res.status(500).json({
+      error: err?.message || "サーバーエラーが発生しました。"
+    });
   }
 });
 
@@ -147,7 +205,87 @@ app.post("/chat", upload.single("image"), async (req, res) => {
  */
 app.get("/chats", (req, res) => {
   db.all("SELECT * FROM chats ORDER BY created_at DESC", (err, rows) => {
-    res.json(rows);
+    if (err) {
+      console.error(err);
+      return res.status(500).send("DB error");
+    }
+
+    const html = `
+      <!DOCTYPE html>
+      <html lang="ja">
+        <head>
+          <meta charset="UTF-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <title>チャット履歴</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+              max-width: 960px;
+              margin: 24px auto;
+              padding: 0 16px;
+              line-height: 1.7;
+              background: #f7f7f7;
+              color: #222;
+            }
+            h1 {
+              margin-bottom: 24px;
+            }
+            .chat {
+              background: #fff;
+              border: 1px solid #ddd;
+              border-radius: 10px;
+              padding: 16px;
+              margin-bottom: 16px;
+              box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            }
+            .meta {
+              color: #666;
+              font-size: 14px;
+              margin-bottom: 12px;
+            }
+            .label {
+              font-weight: 700;
+              margin: 12px 0 6px;
+            }
+            pre {
+              white-space: pre-wrap;
+              word-break: break-word;
+              background: #fafafa;
+              border: 1px solid #eee;
+              border-radius: 8px;
+              padding: 12px;
+              margin: 0;
+            }
+            .image-path {
+              font-size: 13px;
+              color: #555;
+            }
+            .empty {
+              color: #666;
+              background: #fff;
+              border: 1px solid #ddd;
+              border-radius: 10px;
+              padding: 16px;
+            }
+          </style>
+        </head>
+        <body>
+          <h1>チャット履歴</h1>
+          ${rows.length === 0 ? '<div class="empty">まだ履歴がありません。</div>' : rows.map((row) => `
+            <section class="chat">
+              <div class="meta">ユーザ名: ${escapeHtml(row.user_name || "")} / 日時: ${escapeHtml(row.created_at || "")}</div>
+              <div class="label">質問</div>
+              <pre>${escapeHtml(row.prompt || "")}</pre>
+              <div class="label">回答</div>
+              <pre>${escapeHtml(row.response || "")}</pre>
+              ${row.image_path ? `<div class="label">画像保存パス</div><pre class="image-path">${escapeHtml(row.image_path)}</pre>` : ""}
+            </section>
+          `).join("")}
+        </body>
+      </html>
+    `;
+
+    res.send(html);
   });
 });
 
