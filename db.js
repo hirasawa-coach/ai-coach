@@ -1,6 +1,15 @@
 const sqlite3 = require("sqlite3").verbose();
+const path = require("path");
 
-const db = new sqlite3.Database("./chat.db");
+// 本番（Render）ではPersistent Diskの /data を使う
+// ローカルではプロジェクト配下のchat.dbを使う
+const dbPath = process.env.NODE_ENV === "production"
+  ? "/data/chat.db"
+  : path.join(__dirname, "chat.db");
+
+console.log("DB path:", dbPath);
+
+const db = new sqlite3.Database(dbPath);
 
 db.serialize(() => {
   db.run(`
@@ -13,7 +22,8 @@ db.serialize(() => {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
-    db.run(`
+
+  db.run(`
     CREATE INDEX IF NOT EXISTS idx_chats_user_created_at
     ON chats (user_name, created_at)
   `);
